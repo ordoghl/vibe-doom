@@ -3,25 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Doom Clone</title>
+    <title>Doom Clone 3D</title>
     <style>
         body {
             margin: 0;
             padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
         }
         #game-container {
-            border: 2px solid #333;
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        #menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 40px;
+            border: 2px solid #ff0000;
+            text-align: center;
+            color: white;
+        }
+        #menu h1 {
+            color: #ff0000;
+            margin-bottom: 30px;
+            font-size: 48px;
+            text-shadow: 2px 2px 4px #000;
+        }
+        #menu button {
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #ff0000;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin: 10px;
+        }
+        #menu button:hover {
+            background: #ff6666;
+        }
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 20px;
+            text-shadow: 2px 2px 4px #000;
+            z-index: 100;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            pointer-events: none;
+            z-index: 100;
+        }
+        #crosshair::before,
+        #crosshair::after {
+            content: '';
+            position: absolute;
+            background: #00ff00;
+        }
+        #crosshair::before {
+            width: 20px;
+            height: 2px;
+            top: 9px;
+            left: 0;
+        }
+        #crosshair::after {
+            width: 2px;
+            height: 20px;
+            top: 0;
+            left: 9px;
+        }
+        #minimap {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 200px;
+            height: 200px;
+            border: 2px solid #00ff00;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 100;
+        }
+        .controls {
+            margin-top: 30px;
+            line-height: 1.8;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 40px;
+            border: 2px solid #ff0000;
+            text-align: center;
+            color: white;
+            display: none;
+            z-index: 200;
         }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
-    <div id="game-container"></div>
+    <div id="game-container">
+        <div id="menu">
+            <h1>DOOM CLONE 3D</h1>
+            <button onclick="startGame()">START GAME</button>
+            <div class="controls">
+                <h3>CONTROLS:</h3>
+                W/S - Move Forward/Backward<br>
+                A/D - Rotate Left/Right<br>
+                Mouse - Look Around<br>
+                Left Click - Shoot<br>
+                Space - Jump<br>
+                <br>
+                Click on game to capture mouse<br>
+                ESC to release mouse<br>
+                <br>
+                Survive as long as possible!
+            </div>
+        </div>
+        <div id="hud" style="display: none;">
+            Health: <span id="health">100</span><br>
+            Score: <span id="score">0</span><br>
+            <br>
+            <span style="color: #ff00ff;">Objective: Destroy all spawn points!</span><br>
+            <span id="spawnStatus" style="color: #ffff00;"></span>
+        </div>
+        <div id="crosshair" style="display: none;"></div>
+        <canvas id="minimap" style="display: none;" width="200" height="200"></canvas>
+        <div id="gameOver">
+            <h2>GAME OVER</h2>
+            <p>Final Score: <span id="finalScore">0</span></p>
+            <button onclick="location.reload()">RESTART</button>
+        </div>
+    </div>
     <script src="game.js"></script>
 </body>
 </html>
