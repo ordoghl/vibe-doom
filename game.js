@@ -4,6 +4,8 @@ let player, enemies = [], bullets = [], enemyBullets = [];
 let walls = [];
 let spawnPoints = [];
 let lamps = [];
+let healthPacks = [];
+let shields = [];
 let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
 let canJump = false;
 let velocity = new THREE.Vector3();
@@ -11,6 +13,7 @@ let direction = new THREE.Vector3();
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
 let health = 100;
+let maxHealth = 100;
 let score = 0;
 let gameRunning = false;
 let clock = new THREE.Clock();
@@ -19,6 +22,10 @@ let lastEnemyShot = {};
 let lastSpawnTime = {};
 let cameraPitch = 0; // Store camera pitch separately
 let minimapCanvas, minimapCtx; // Minimap variables
+
+// Shield system
+let shieldActive = false;
+let shieldEndTime = 0;
 
 // Audio variables
 let audioContext;
@@ -76,6 +83,7 @@ function init() {
     const levelData = generateLevel();
     createSpawnPointsFromData(levelData.spawnPoints);
     createLamps();
+    createPickups();
     
     // Don't create initial enemies - they'll spawn from spawn points
 
@@ -149,6 +157,7 @@ function createSounds() {
     sounds.playerHit = createPlayerHitSound();
     sounds.spawnDestroy = createExplosionSound();
     sounds.footstep = createFootstepSound();
+    sounds.pickup = createPickupSound();
 }
 
 function createShootSound() {
@@ -337,6 +346,42 @@ function createFootstepSound() {
         oscillator.type = 'square';
         oscillator.start(audioContext.currentTime);
         oscillator.stop(audioContext.currentTime + 0.1);
+    };
+}
+
+function createPickupSound() {
+    return function() {
+        if (!audioContext) return;
+        
+        // Create a pleasant chime sound with ascending notes
+        const frequencies = [440, 554.37, 659.25]; // A4, C#5, E5 - A major chord
+        
+        frequencies.forEach((freq, index) => {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            const filter = audioContext.createBiquadFilter();
+            
+            oscillator.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            // Set up a bright, bell-like sound
+            oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
+            oscillator.type = 'sine';
+            
+            // Low-pass filter for smooth sound
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(2000, audioContext.currentTime);
+            
+            // Volume envelope with quick attack, sustain, and decay
+            const startTime = audioContext.currentTime + index * 0.05; // Stagger notes slightly
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(0.15, startTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.4);
+            
+            oscillator.start(startTime);
+            oscillator.stop(startTime + 0.4);
+        });
     };
 }
 
@@ -999,6 +1044,142 @@ function createLamps() {
     });
 }
 
+function createPickups() {
+    // Generate health pack positions
+    let seed = levelSeed + 20000;
+    
+    // Place health packs in open areas
+    for (let attempts = 0; attempts < 15; attempts++) {
+        const gridX = 5 + Math.floor(seededRandom(seed++) * (gridSize - 10));
+        const gridZ = 5 + Math.floor(seededRandom(seed++) * (gridSize - 10));
+        
+        // Check if position is empty
+        if (levelGrid[gridX][gridZ] === 0) {
+            const worldX = (gridX - gridSize / 2) * cellSize;
+            const worldZ = (gridZ - gridSize / 2) * cellSize;
+            
+            // Check distance from spawn points and other pickups
+            let tooClose = false;
+            for (const existing of [...healthPacks, ...shields]) {
+                const distance = Math.sqrt((worldX - existing.position.x) ** 2 + (worldZ - existing.position.z) ** 2);
+                if (distance < 6) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            
+            if (!tooClose) {
+                const healthPack = createHealthPack(worldX, worldZ);
+                scene.add(healthPack);
+                healthPacks.push(healthPack);
+            }
+        }
+    }
+    
+    // Place shield pickups (fewer than health packs)
+    seed = levelSeed + 30000;
+    for (let attempts = 0; attempts < 8; attempts++) {
+        const gridX = 5 + Math.floor(seededRandom(seed++) * (gridSize - 10));
+        const gridZ = 5 + Math.floor(seededRandom(seed++) * (gridSize - 10));
+        
+        // Check if position is empty
+        if (levelGrid[gridX][gridZ] === 0) {
+            const worldX = (gridX - gridSize / 2) * cellSize;
+            const worldZ = (gridZ - gridSize / 2) * cellSize;
+            
+            // Check distance from spawn points and other pickups
+            let tooClose = false;
+            for (const existing of [...healthPacks, ...shields]) {
+                const distance = Math.sqrt((worldX - existing.position.x) ** 2 + (worldZ - existing.position.z) ** 2);
+                if (distance < 6) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            
+            if (!tooClose) {
+                const shield = createShieldPickup(worldX, worldZ);
+                scene.add(shield);
+                shields.push(shield);
+            }
+        }
+    }
+}
+
+function createHealthPack(x, z) {
+    const healthGroup = new THREE.Group();
+    
+    // Base
+    const baseGeometry = new THREE.BoxGeometry(1, 0.2, 1);
+    const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x660000 });
+    const base = new THREE.Mesh(baseGeometry, baseMaterial);
+    base.position.y = 0.1;
+    healthGroup.add(base);
+    
+    // Cross vertical
+    const crossVertGeometry = new THREE.BoxGeometry(0.3, 1, 0.1);
+    const crossMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0xff0000,
+        emissive: 0x330000
+    });
+    const crossVert = new THREE.Mesh(crossVertGeometry, crossMaterial);
+    crossVert.position.y = 0.7;
+    healthGroup.add(crossVert);
+    
+    // Cross horizontal
+    const crossHorGeometry = new THREE.BoxGeometry(0.1, 0.3, 0.1);
+    const crossHor = new THREE.Mesh(crossHorGeometry, crossMaterial);
+    crossHor.position.y = 0.7;
+    crossHor.rotation.z = Math.PI / 2;
+    healthGroup.add(crossHor);
+    
+    // Floating animation data
+    healthGroup.userData = {
+        type: 'healthPack',
+        baseY: 0,
+        bobSpeed: 2,
+        rotationSpeed: 1
+    };
+    
+    healthGroup.position.set(x, 0, z);
+    return healthGroup;
+}
+
+function createShieldPickup(x, z) {
+    const shieldGroup = new THREE.Group();
+    
+    // Base
+    const baseGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.2, 8);
+    const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x000066 });
+    const base = new THREE.Mesh(baseGeometry, baseMaterial);
+    base.position.y = 0.1;
+    shieldGroup.add(base);
+    
+    // Shield icon (diamond shape)
+    const shieldGeometry = new THREE.OctahedronGeometry(0.6);
+    const shieldMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x00ffff,
+        emissive: 0x004444,
+        transparent: true,
+        opacity: 0.8
+    });
+    const shield = new THREE.Mesh(shieldGeometry, shieldMaterial);
+    shield.position.y = 0.8;
+    shieldGroup.add(shield);
+    
+    // Floating animation data
+    shieldGroup.userData = {
+        type: 'shield',
+        baseY: 0,
+        bobSpeed: 1.5,
+        rotationSpeed: 2,
+        shieldPart: shield
+    };
+    
+    shieldGroup.position.set(x, 0, z);
+    return shieldGroup;
+}
+
 function onKeyDown(event) {
     switch (event.code) {
         case 'KeyW': moveForward = true; break;
@@ -1247,15 +1428,21 @@ function updateBullets(delta) {
         if (bullet.position.distanceTo(player.position) < 1) {
             scene.remove(bullet);
             enemyBullets.splice(i, 1);
-            health -= 10;
             
-            // Play player hit sound
-            if (sounds.playerHit) sounds.playerHit();
-            
-            updateHUD();
-            
-            if (health <= 0) {
-                gameOver();
+            // Check if shield is active
+            if (!shieldActive) {
+                health -= 10;
+                // Ensure health cannot go below 0
+                health = Math.max(0, health);
+                
+                // Play player hit sound
+                if (sounds.playerHit) sounds.playerHit();
+                
+                updateHUD();
+                
+                if (health <= 0) {
+                    gameOver();
+                }
             }
         }
 
@@ -1441,6 +1628,56 @@ function updatePlayer(delta) {
         velocity.z = 0;
     }
 
+    // Check pickup collisions
+    const pickupRadius = 1.0; // Pickup collection radius
+    
+    // Check health pack collisions
+    for (let i = healthPacks.length - 1; i >= 0; i--) {
+        const healthPack = healthPacks[i];
+        const distance = player.position.distanceTo(healthPack.position);
+        
+        if (distance < pickupRadius) {
+            // Restore health (cap at maxHealth)
+            health = Math.min(health + 25, maxHealth);
+            updateHUD();
+            
+            // Play pickup sound effect
+            if (sounds.pickup) sounds.pickup();
+            
+            // Remove pickup from scene and array
+            scene.remove(healthPack);
+            healthPacks.splice(i, 1);
+            
+            // Add score
+            score += 50;
+        }
+    }
+    
+    // Check shield pickup collisions
+    for (let i = shields.length - 1; i >= 0; i--) {
+        const shield = shields[i];
+        const distance = player.position.distanceTo(shield.position);
+        
+        if (distance < pickupRadius) {
+            // Activate shield for 10 seconds
+            shieldActive = true;
+            shieldEndTime = Date.now() + 10000; // 10 seconds
+            
+            // Show shield status
+            document.getElementById('shieldStatus').style.display = 'block';
+            
+            // Play pickup sound effect
+            if (sounds.pickup) sounds.pickup();
+            
+            // Remove pickup from scene and array
+            scene.remove(shield);
+            shields.splice(i, 1);
+            
+            // Add score
+            score += 100;
+        }
+    }
+
     // Play footstep sounds
     const currentTime = Date.now();
     const isMoving = moveForward || moveBackward || moveLeft || moveRight;
@@ -1461,6 +1698,10 @@ function updatePlayer(delta) {
 function updateHUD() {
     document.getElementById('health').textContent = health;
     document.getElementById('score').textContent = score;
+    
+    // Update health bar width based on current health percentage
+    const healthPercentage = (health / maxHealth) * 100;
+    document.getElementById('healthBar').style.width = healthPercentage + '%';
     
     // Update seed display
     if (seedString) {
@@ -1698,6 +1939,46 @@ function checkWinCondition() {
     }
 }
 
+function updatePickups(delta) {
+    const time = Date.now() * 0.001; // Convert to seconds
+    
+    // Animate health packs
+    healthPacks.forEach(healthPack => {
+        if (healthPack.userData) {
+            const bobSpeed = healthPack.userData.bobSpeed || 2;
+            const rotationSpeed = healthPack.userData.rotationSpeed || 1;
+            
+            // Floating/bobbing animation
+            const baseY = healthPack.userData.baseY || 0;
+            healthPack.position.y = baseY + Math.sin(time * bobSpeed) * 0.2;
+            
+            // Rotation animation
+            healthPack.rotation.y = time * rotationSpeed;
+        }
+    });
+    
+    // Animate shield pickups
+    shields.forEach(shield => {
+        if (shield.userData) {
+            const bobSpeed = shield.userData.bobSpeed || 1.5;
+            const rotationSpeed = shield.userData.rotationSpeed || 2;
+            
+            // Floating/bobbing animation
+            const baseY = shield.userData.baseY || 0;
+            shield.position.y = baseY + Math.sin(time * bobSpeed) * 0.3;
+            
+            // Rotation animation around Y axis
+            shield.rotation.y = time * rotationSpeed;
+            
+            // Special shield animation - rotate the inner part if it exists
+            if (shield.userData.shieldPart) {
+                shield.userData.shieldPart.rotation.x = time * rotationSpeed * 0.5;
+                shield.userData.shieldPart.rotation.z = time * rotationSpeed * 0.3;
+            }
+        }
+    });
+}
+
 function animate() {
     if (!gameRunning) return;
 
@@ -1709,6 +1990,13 @@ function animate() {
     updateEnemies(delta);
     updateBullets(delta);
     updateSpawnPoints(delta);
+    updatePickups(delta);
+
+    // Check shield expiration
+    if (shieldActive && Date.now() > shieldEndTime) {
+        shieldActive = false;
+        document.getElementById('shieldStatus').style.display = 'none';
+    }
 
     renderer.render(scene, camera);
     
