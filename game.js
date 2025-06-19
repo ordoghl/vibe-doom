@@ -23,6 +23,7 @@ let minimapCanvas, minimapCtx; // Minimap variables
 // Audio variables
 let audioContext;
 let backgroundMusic;
+let backgroundAudio; // HTML5 Audio element for MP3
 let sounds = {};
 let lastFootstep = 0;
 let lastGrowl = {};
@@ -32,6 +33,7 @@ let levelGrid = [];
 let gridSize = 50;
 let cellSize = 2;
 let levelSeed = Math.floor(Math.random() * 1000000);
+let seedString = "";
 
 // Initialize the game
 function init() {
@@ -114,10 +116,28 @@ function initAudio() {
     try {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         createSounds();
-        createBackgroundMusic();
+        loadBackgroundMusic();
     } catch (e) {
         console.log('Web Audio API not supported');
     }
+}
+
+function loadBackgroundMusic() {
+    // Create HTML5 Audio element for MP3 background music
+    backgroundAudio = new Audio();
+    backgroundAudio.src = 'assets/video-game-boss-fiight-259885.mp3';
+    backgroundAudio.loop = true;
+    backgroundAudio.volume = 0.4; // Good volume for boss fight music
+    
+    backgroundAudio.addEventListener('canplaythrough', () => {
+        console.log('Background music loaded: video-game-boss-fiight-259885.mp3');
+    }, { once: true });
+    
+    backgroundAudio.addEventListener('error', () => {
+        console.log('MP3 background music failed to load, using generated audio');
+        // Fall back to generated music
+        createBackgroundMusic();
+    }, { once: true });
 }
 
 function createSounds() {
@@ -361,6 +381,26 @@ function createBackgroundMusic() {
 }
 
 function startBackgroundMusic() {
+    // Try to play MP3 first
+    if (backgroundAudio) {
+        backgroundAudio.currentTime = 0;
+        const playPromise = backgroundAudio.play();
+        
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                console.log('Background music started');
+            }).catch(error => {
+                console.log('MP3 background music failed, using generated audio');
+                startGeneratedMusic();
+            });
+        }
+    } else {
+        // Fall back to generated music
+        startGeneratedMusic();
+    }
+}
+
+function startGeneratedMusic() {
     if (!backgroundMusic || !audioContext) return;
     
     backgroundMusic.oscillators.forEach(osc => osc.start());
@@ -379,9 +419,33 @@ function startBackgroundMusic() {
 }
 
 function stopBackgroundMusic() {
-    if (!backgroundMusic || !audioContext) return;
+    // Stop MP3 if playing
+    if (backgroundAudio) {
+        backgroundAudio.pause();
+        backgroundAudio.currentTime = 0;
+    }
     
-    backgroundMusic.masterGain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 1);
+    // Stop generated music if playing
+    if (backgroundMusic && audioContext) {
+        backgroundMusic.masterGain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 1);
+    }
+}
+
+// String to seed hash function
+function hashStringToSeed(str) {
+    if (!str || str.trim() === '') {
+        return Math.floor(Math.random() * 1000000);
+    }
+    
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    // Ensure positive number and reasonable range
+    return Math.abs(hash) % 1000000;
 }
 
 // Seeded random number generator
@@ -1328,6 +1392,13 @@ function updateHUD() {
     document.getElementById('health').textContent = health;
     document.getElementById('score').textContent = score;
     
+    // Update seed display
+    if (seedString) {
+        document.getElementById('seedDisplay').textContent = `Seed: "${seedString}"`;
+    } else {
+        document.getElementById('seedDisplay').textContent = `Seed: ${levelSeed}`;
+    }
+    
     // Update spawn point status
     const activeSpawns = spawnPoints.filter(spawn => spawn.userData.health > 0);
     const totalSpawns = spawnPoints.length;
@@ -1582,6 +1653,21 @@ function onWindowResize() {
 }
 
 function startGame() {
+    // Get seed from input field
+    const seedInput = document.getElementById('seedInput');
+    seedString = seedInput.value.trim();
+    
+    // Generate seed from string
+    levelSeed = hashStringToSeed(seedString);
+    
+    // Display the seed being used
+    if (seedString) {
+        console.log(`Using custom seed: "${seedString}" (hash: ${levelSeed})`);
+    } else {
+        console.log(`Using random seed: ${levelSeed}`);
+    }
+    
+    // Hide menu and show game UI
     document.getElementById('menu').style.display = 'none';
     document.getElementById('hud').style.display = 'block';
     document.getElementById('crosshair').style.display = 'block';
@@ -1596,11 +1682,6 @@ function startGame() {
     
     updateHUD();
     animate();
-}
-
-function generateNewLevel() {
-    levelSeed = Math.floor(Math.random() * 1000000);
-    location.reload(); // Reload the page to generate a new level
 }
 
 // Initialize when page loads

@@ -116,8 +116,19 @@
     <div id="game-container">
         <div id="menu">
             <h1>DOOM CLONE 3D</h1>
+            <div style="margin-bottom: 20px;">
+                <label for="seedInput" style="color: white; display: block; margin-bottom: 5px;">Level Seed (optional):</label>
+                <input type="text" id="seedInput" placeholder="Enter any text for custom level..." style="
+                    padding: 8px 12px;
+                    font-size: 16px;
+                    border: 2px solid #ff0000;
+                    background: rgba(0, 0, 0, 0.8);
+                    color: white;
+                    width: 300px;
+                    text-align: center;
+                " />
+            </div>
             <button onclick="startGame()">START GAME</button>
-            <button onclick="generateNewLevel()">NEW LEVEL</button>
             <div class="controls">
                 <h3>CONTROLS:</h3>
                 W/S - Move Forward/Backward<br>
@@ -135,6 +146,7 @@
         <div id="hud" style="display: none;">
             Health: <span id="health">100</span><br>
             Score: <span id="score">0</span><br>
+            <span id="seedDisplay" style="color: #888888; font-size: 14px;"></span><br>
             <br>
             <span style="color: #ff00ff;">Objective: Destroy all spawn points!</span><br>
             <span id="spawnStatus" style="color: #ffff00;"></span>
