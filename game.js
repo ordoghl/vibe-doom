@@ -20,6 +20,13 @@ let lastSpawnTime = {};
 let cameraPitch = 0; // Store camera pitch separately
 let minimapCanvas, minimapCtx; // Minimap variables
 
+// Audio variables
+let audioContext;
+let backgroundMusic;
+let sounds = {};
+let lastFootstep = 0;
+let lastGrowl = {};
+
 // Initialize the game
 function init() {
     // Scene setup
@@ -94,6 +101,284 @@ function init() {
     // Initialize minimap
     minimapCanvas = document.getElementById('minimap');
     minimapCtx = minimapCanvas.getContext('2d');
+    
+    // Initialize audio
+    initAudio();
+}
+
+// Audio System
+function initAudio() {
+    try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        createSounds();
+        createBackgroundMusic();
+    } catch (e) {
+        console.log('Web Audio API not supported');
+    }
+}
+
+function createSounds() {
+    // Create shooting sound
+    sounds.shoot = createShootSound();
+    sounds.enemyHit = createHitSound();
+    sounds.enemyDeath = createDeathSound();
+    sounds.monsterGrowl = createGrowlSound();
+    sounds.playerHit = createPlayerHitSound();
+    sounds.spawnDestroy = createExplosionSound();
+    sounds.footstep = createFootstepSound();
+}
+
+function createShootSound() {
+    return function() {
+        if (!audioContext) return;
+        
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        const filter = audioContext.createBiquadFilter();
+        
+        oscillator.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        // Sharp, quick laser-like sound
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.1);
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1200, audioContext.currentTime);
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        
+        oscillator.type = 'square';
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+    };
+}
+
+function createHitSound() {
+    return function() {
+        if (!audioContext) return;
+        
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.setValueAtTime(150, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + 0.2);
+        
+        gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+        
+        oscillator.type = 'square';
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.2);
+    };
+}
+
+function createDeathSound() {
+    return function() {
+        if (!audioContext) return;
+        
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        const filter = audioContext.createBiquadFilter();
+        
+        oscillator.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + 0.8);
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(800, audioContext.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.8);
+        
+        gainNode.gain.setValueAtTime(0.25, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.8);
+        
+        oscillator.type = 'sawtooth';
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.8);
+    };
+}
+
+function createGrowlSound() {
+    return function() {
+        if (!audioContext) return;
+        
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        const filter = audioContext.createBiquadFilter();
+        
+        oscillator.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        // Low, menacing growl
+        oscillator.frequency.setValueAtTime(80 + Math.random() * 40, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(60 + Math.random() * 30, audioContext.currentTime + 0.5);
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(200, audioContext.currentTime);
+        
+        gainNode.gain.setValueAtTime(0.15, audioContext.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime + 0.3);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 1.0);
+        
+        oscillator.type = 'sawtooth';
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 1.0);
+    };
+}
+
+function createPlayerHitSound() {
+    return function() {
+        if (!audioContext) return;
+        
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.3);
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        
+        oscillator.type = 'triangle';
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+    };
+}
+
+function createExplosionSound() {
+    return function() {
+        if (!audioContext) return;
+        
+        // White noise explosion
+        const bufferSize = audioContext.sampleRate * 0.5;
+        const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+        const output = buffer.getChannelData(0);
+        
+        for (let i = 0; i < bufferSize; i++) {
+            output[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+        }
+        
+        const whiteNoise = audioContext.createBufferSource();
+        const gainNode = audioContext.createGain();
+        const filter = audioContext.createBiquadFilter();
+        
+        whiteNoise.buffer = buffer;
+        whiteNoise.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1000, audioContext.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.5);
+        
+        gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+        
+        whiteNoise.start(audioContext.currentTime);
+        whiteNoise.stop(audioContext.currentTime + 0.5);
+    };
+}
+
+function createFootstepSound() {
+    return function() {
+        if (!audioContext) return;
+        
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        const filter = audioContext.createBiquadFilter();
+        
+        oscillator.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.setValueAtTime(50 + Math.random() * 50, audioContext.currentTime);
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(200, audioContext.currentTime);
+        
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        
+        oscillator.type = 'square';
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+    };
+}
+
+function createBackgroundMusic() {
+    if (!audioContext) return;
+    
+    // Dark ambient background music
+    const oscillator1 = audioContext.createOscillator();
+    const oscillator2 = audioContext.createOscillator();
+    const gainNode1 = audioContext.createGain();
+    const gainNode2 = audioContext.createGain();
+    const masterGain = audioContext.createGain();
+    const filter = audioContext.createBiquadFilter();
+    
+    oscillator1.connect(gainNode1);
+    oscillator2.connect(gainNode2);
+    gainNode1.connect(filter);
+    gainNode2.connect(filter);
+    filter.connect(masterGain);
+    masterGain.connect(audioContext.destination);
+    
+    // Low drone frequencies
+    oscillator1.frequency.setValueAtTime(55, audioContext.currentTime); // A1
+    oscillator2.frequency.setValueAtTime(82.4, audioContext.currentTime); // E2
+    
+    oscillator1.type = 'sawtooth';
+    oscillator2.type = 'triangle';
+    
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(400, audioContext.currentTime);
+    filter.Q.setValueAtTime(1, audioContext.currentTime);
+    
+    gainNode1.gain.setValueAtTime(0.05, audioContext.currentTime);
+    gainNode2.gain.setValueAtTime(0.03, audioContext.currentTime);
+    masterGain.gain.setValueAtTime(0, audioContext.currentTime);
+    
+    backgroundMusic = {
+        oscillators: [oscillator1, oscillator2],
+        masterGain: masterGain,
+        filter: filter
+    };
+}
+
+function startBackgroundMusic() {
+    if (!backgroundMusic || !audioContext) return;
+    
+    backgroundMusic.oscillators.forEach(osc => osc.start());
+    backgroundMusic.masterGain.gain.linearRampToValueAtTime(0.4, audioContext.currentTime + 2);
+    
+    // Add some variation to the music
+    setInterval(() => {
+        if (gameRunning && backgroundMusic) {
+            const variation = Math.random() * 0.1 - 0.05;
+            backgroundMusic.filter.frequency.setValueAtTime(
+                400 + variation * 100, 
+                audioContext.currentTime
+            );
+        }
+    }, 5000);
+}
+
+function stopBackgroundMusic() {
+    if (!backgroundMusic || !audioContext) return;
+    
+    backgroundMusic.masterGain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 1);
 }
 
 function createLevel() {
@@ -510,6 +795,9 @@ function shoot() {
     if (currentTime - lastShot < 200) return; // Fire rate limit
     lastShot = currentTime;
 
+    // Play shooting sound
+    if (sounds.shoot) sounds.shoot();
+
     const bulletGeometry = new THREE.SphereGeometry(0.1, 8, 8);
     const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
     const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
@@ -565,7 +853,14 @@ function updateBullets(delta) {
                 bullets.splice(i, 1);
                 
                 enemy.health--;
+                
+                // Play hit sound
+                if (sounds.enemyHit) sounds.enemyHit();
+                
                 if (enemy.health <= 0) {
+                    // Play death sound
+                    if (sounds.enemyDeath) sounds.enemyDeath();
+                    
                     scene.remove(enemy);
                     delete lastEnemyShot[enemy.id];
                     enemies.splice(j, 1);
@@ -592,6 +887,9 @@ function updateBullets(delta) {
                 spawn.userData.core.material.emissiveIntensity = 0.8 - (0.6 * (1 - spawn.userData.health / 10));
                 
                 if (spawn.userData.health <= 0) {
+                    // Play explosion sound
+                    if (sounds.spawnDestroy) sounds.spawnDestroy();
+                    
                     // Destroy spawn point
                     scene.remove(spawn);
                     score += 500;
@@ -631,6 +929,10 @@ function updateBullets(delta) {
             scene.remove(bullet);
             enemyBullets.splice(i, 1);
             health -= 10;
+            
+            // Play player hit sound
+            if (sounds.playerHit) sounds.playerHit();
+            
             updateHUD();
             
             if (health <= 0) {
@@ -707,6 +1009,15 @@ function updateEnemies(delta) {
             
             if (intersects.length === 0 || intersects[0].distance > distance) {
                 enemyShoot(enemy);
+            }
+            
+            // Random growl sounds during combat
+            const currentTime = Date.now();
+            if (!lastGrowl[enemy.id] || currentTime > lastGrowl[enemy.id] + 8000 + Math.random() * 5000) {
+                if (sounds.monsterGrowl && Math.random() < 0.1) {
+                    sounds.monsterGrowl();
+                    lastGrowl[enemy.id] = currentTime;
+                }
             }
         }
     });
@@ -808,6 +1119,14 @@ function updatePlayer(delta) {
     if (Math.abs(player.position.z) > 18) {
         player.position.z = Math.sign(player.position.z) * 18;
         velocity.z = 0;
+    }
+
+    // Play footstep sounds
+    const currentTime = Date.now();
+    const isMoving = moveForward || moveBackward || moveLeft || moveRight;
+    if (isMoving && currentTime > lastFootstep + 500) {
+        if (sounds.footstep) sounds.footstep();
+        lastFootstep = currentTime;
     }
 
     // Update camera position and rotation
@@ -969,6 +1288,7 @@ function renderMinimap() {
 function gameOver() {
     gameRunning = false;
     document.exitPointerLock();
+    stopBackgroundMusic();
     document.getElementById('finalScore').textContent = score;
     document.getElementById('gameOver').style.display = 'block';
 }
@@ -997,6 +1317,11 @@ function updateSpawnPoints(delta) {
                 enemies.push(monster);
                 lastEnemyShot[monster.id] = currentTime;
                 
+                // Play monster growl when spawning
+                if (sounds.monsterGrowl) {
+                    setTimeout(() => sounds.monsterGrowl(), Math.random() * 1000);
+                }
+                
                 // Set next spawn time (3-5 seconds)
                 spawn.userData.nextSpawnTime = currentTime + 3000 + Math.random() * 2000;
             }
@@ -1012,6 +1337,7 @@ function checkWinCondition() {
         // Victory!
         gameRunning = false;
         document.exitPointerLock();
+        stopBackgroundMusic();
         
         const victoryDiv = document.createElement('div');
         victoryDiv.id = 'victory';
@@ -1075,6 +1401,13 @@ function startGame() {
     document.getElementById('crosshair').style.display = 'block';
     document.getElementById('minimap').style.display = 'block';
     gameRunning = true;
+    
+    // Resume audio context and start background music
+    if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+    startBackgroundMusic();
+    
     updateHUD();
     animate();
 }
