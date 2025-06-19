@@ -27,6 +27,12 @@ let sounds = {};
 let lastFootstep = 0;
 let lastGrowl = {};
 
+// Level generation variables
+let levelGrid = [];
+let gridSize = 50;
+let cellSize = 2;
+let levelSeed = Math.floor(Math.random() * 1000000);
+
 // Initialize the game
 function init() {
     // Scene setup
@@ -58,18 +64,15 @@ function init() {
     directionalLight.shadow.camera.bottom = -50;
     scene.add(directionalLight);
 
-    // Create level
-    createLevel();
-
     // Create player (invisible in first person)
     const playerGeometry = new THREE.BoxGeometry(0.8, 1.6, 0.8);
     const playerMaterial = new THREE.MeshBasicMaterial({ visible: false });
     player = new THREE.Mesh(playerGeometry, playerMaterial);
-    player.position.set(0, 0.8, 5);
     scene.add(player);
 
-    // Create spawn points and lamps
-    createSpawnPoints();
+    // Generate level and create spawn points
+    const levelData = generateLevel();
+    createSpawnPointsFromData(levelData.spawnPoints);
     createLamps();
     
     // Don't create initial enemies - they'll spawn from spawn points
@@ -381,7 +384,230 @@ function stopBackgroundMusic() {
     backgroundMusic.masterGain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 1);
 }
 
-function createLevel() {
+// Seeded random number generator
+function seededRandom(seed) {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+}
+
+// Level generation system
+function generateLevel() {
+    console.log(`Generating level with seed: ${levelSeed}`);
+    
+    // Initialize grid (0 = empty, 1 = wall, 2 = player start, 3 = spawn point)
+    levelGrid = Array(gridSize).fill().map(() => Array(gridSize).fill(0));
+    
+    // Create border walls
+    for (let x = 0; x < gridSize; x++) {
+        for (let z = 0; z < gridSize; z++) {
+            if (x === 0 || x === gridSize - 1 || z === 0 || z === gridSize - 1) {
+                levelGrid[x][z] = 1;
+            }
+        }
+    }
+    
+    // Generate rooms and corridors
+    generateRoomsAndCorridors();
+    
+    // Place player start (center of grid)
+    const playerStartX = Math.floor(gridSize / 2);
+    const playerStartZ = Math.floor(gridSize / 2);
+    levelGrid[playerStartX][playerStartZ] = 2;
+    
+    // Clear area around player start
+    for (let dx = -2; dx <= 2; dx++) {
+        for (let dz = -2; dz <= 2; dz++) {
+            const x = playerStartX + dx;
+            const z = playerStartZ + dz;
+            if (x >= 0 && x < gridSize && z >= 0 && z < gridSize) {
+                if (levelGrid[x][z] === 1) levelGrid[x][z] = 0;
+            }
+        }
+    }
+    
+    // Generate spawn points with reachability check
+    const spawnPoints = generateReachableSpawnPoints(playerStartX, playerStartZ);
+    
+    // Build the 3D level
+    buildLevelGeometry(spawnPoints);
+    
+    return { playerStart: { x: playerStartX, z: playerStartZ }, spawnPoints };
+}
+
+function generateRoomsAndCorridors() {
+    let seed = levelSeed;
+    
+    // Generate random rooms
+    const numRooms = 8 + Math.floor(seededRandom(seed++) * 8);
+    const rooms = [];
+    
+    for (let i = 0; i < numRooms; i++) {
+        let attempts = 0;
+        while (attempts < 50) {
+            const width = 4 + Math.floor(seededRandom(seed++) * 8);
+            const height = 4 + Math.floor(seededRandom(seed++) * 8);
+            const x = 3 + Math.floor(seededRandom(seed++) * (gridSize - width - 6));
+            const z = 3 + Math.floor(seededRandom(seed++) * (gridSize - height - 6));
+            
+            // Check if room overlaps with existing rooms
+            let overlaps = false;
+            for (const room of rooms) {
+                if (x < room.x + room.width + 2 && x + width + 2 > room.x &&
+                    z < room.z + room.height + 2 && z + height + 2 > room.z) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            
+            if (!overlaps) {
+                rooms.push({ x, z, width, height });
+                
+                // Carve out room (set to empty)
+                for (let rx = x; rx < x + width; rx++) {
+                    for (let rz = z; rz < z + height; rz++) {
+                        if (rx > 0 && rx < gridSize - 1 && rz > 0 && rz < gridSize - 1) {
+                            levelGrid[rx][rz] = 0;
+                        }
+                    }
+                }
+                break;
+            }
+            attempts++;
+        }
+    }
+    
+    // Connect rooms with corridors
+    for (let i = 0; i < rooms.length - 1; i++) {
+        const roomA = rooms[i];
+        const roomB = rooms[i + 1];
+        
+        // Get center points of rooms
+        const centerA = {
+            x: Math.floor(roomA.x + roomA.width / 2),
+            z: Math.floor(roomA.z + roomA.height / 2)
+        };
+        const centerB = {
+            x: Math.floor(roomB.x + roomB.width / 2),
+            z: Math.floor(roomB.z + roomB.height / 2)
+        };
+        
+        // Create L-shaped corridor
+        carveCorridor(centerA.x, centerA.z, centerB.x, centerA.z);
+        carveCorridor(centerB.x, centerA.z, centerB.x, centerB.z);
+    }
+    
+    // Add some random walls for complexity
+    seed = levelSeed + 1000;
+    const numWalls = 15 + Math.floor(seededRandom(seed++) * 20);
+    for (let i = 0; i < numWalls; i++) {
+        const length = 2 + Math.floor(seededRandom(seed++) * 6);
+        const startX = 3 + Math.floor(seededRandom(seed++) * (gridSize - 6));
+        const startZ = 3 + Math.floor(seededRandom(seed++) * (gridSize - 6));
+        const horizontal = seededRandom(seed++) > 0.5;
+        
+        for (let j = 0; j < length; j++) {
+            const x = horizontal ? startX + j : startX;
+            const z = horizontal ? startZ : startZ + j;
+            
+            if (x >= 2 && x < gridSize - 2 && z >= 2 && z < gridSize - 2) {
+                if (levelGrid[x][z] === 0) {
+                    levelGrid[x][z] = 1;
+                }
+            }
+        }
+    }
+}
+
+function carveCorridor(x1, z1, x2, z2) {
+    const startX = Math.min(x1, x2);
+    const endX = Math.max(x1, x2);
+    const startZ = Math.min(z1, z2);
+    const endZ = Math.max(z1, z2);
+    
+    for (let x = startX; x <= endX; x++) {
+        for (let z = startZ; z <= endZ; z++) {
+            if (x > 0 && x < gridSize - 1 && z > 0 && z < gridSize - 1) {
+                levelGrid[x][z] = 0;
+                // Also clear adjacent cells for wider corridors
+                if (x > 1 && levelGrid[x-1][z] === 1) levelGrid[x-1][z] = 0;
+                if (x < gridSize - 2 && levelGrid[x+1][z] === 1) levelGrid[x+1][z] = 0;
+                if (z > 1 && levelGrid[x][z-1] === 1) levelGrid[x][z-1] = 0;
+                if (z < gridSize - 2 && levelGrid[x][z+1] === 1) levelGrid[x][z+1] = 0;
+            }
+        }
+    }
+}
+
+function generateReachableSpawnPoints(playerX, playerZ) {
+    const spawnPoints = [];
+    let seed = levelSeed + 5000;
+    const numSpawnPoints = 3 + Math.floor(seededRandom(seed++) * 3);
+    
+    let attempts = 0;
+    while (spawnPoints.length < numSpawnPoints && attempts < 100) {
+        const x = 5 + Math.floor(seededRandom(seed++) * (gridSize - 10));
+        const z = 5 + Math.floor(seededRandom(seed++) * (gridSize - 10));
+        
+        // Check if position is empty and far from player start
+        const distanceFromPlayer = Math.sqrt((x - playerX) ** 2 + (z - playerZ) ** 2);
+        
+        if (levelGrid[x][z] === 0 && distanceFromPlayer > 8) {
+            // Check if reachable from player start
+            if (isReachable(playerX, playerZ, x, z)) {
+                levelGrid[x][z] = 3;
+                spawnPoints.push({ x, z });
+                
+                // Clear area around spawn point
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dz = -1; dz <= 1; dz++) {
+                        const nx = x + dx;
+                        const nz = z + dz;
+                        if (nx >= 0 && nx < gridSize && nz >= 0 && nz < gridSize) {
+                            if (levelGrid[nx][nz] === 1) levelGrid[nx][nz] = 0;
+                        }
+                    }
+                }
+            }
+        }
+        attempts++;
+    }
+    
+    return spawnPoints;
+}
+
+function isReachable(startX, startZ, targetX, targetZ) {
+    // Simple breadth-first search pathfinding
+    const visited = Array(gridSize).fill().map(() => Array(gridSize).fill(false));
+    const queue = [{ x: startX, z: startZ }];
+    visited[startX][startZ] = true;
+    
+    const directions = [
+        { x: 0, z: 1 }, { x: 1, z: 0 }, { x: 0, z: -1 }, { x: -1, z: 0 }
+    ];
+    
+    while (queue.length > 0) {
+        const current = queue.shift();
+        
+        if (current.x === targetX && current.z === targetZ) {
+            return true;
+        }
+        
+        for (const dir of directions) {
+            const newX = current.x + dir.x;
+            const newZ = current.z + dir.z;
+            
+            if (newX >= 0 && newX < gridSize && newZ >= 0 && newZ < gridSize &&
+                !visited[newX][newZ] && levelGrid[newX][newZ] !== 1) {
+                visited[newX][newZ] = true;
+                queue.push({ x: newX, z: newZ });
+            }
+        }
+    }
+    
+    return false;
+}
+
+function buildLevelGeometry(spawnPointPositions) {
     // Create textures
     const textureLoader = new THREE.TextureLoader();
     
@@ -408,7 +634,7 @@ function createLevel() {
     const floorTexture = new THREE.CanvasTexture(floorCanvas);
     floorTexture.wrapS = THREE.RepeatWrapping;
     floorTexture.wrapT = THREE.RepeatWrapping;
-    floorTexture.repeat.set(10, 10);
+    floorTexture.repeat.set(20, 20);
     
     // Create wall texture
     const wallCanvas = document.createElement('canvas');
@@ -434,7 +660,8 @@ function createLevel() {
     wallTexture.wrapT = THREE.RepeatWrapping;
 
     // Floor
-    const floorGeometry = new THREE.PlaneGeometry(100, 100);
+    const levelSize = gridSize * cellSize;
+    const floorGeometry = new THREE.PlaneGeometry(levelSize, levelSize);
     const floorMaterial = new THREE.MeshStandardMaterial({ 
         map: floorTexture,
         roughness: 0.8
@@ -457,95 +684,48 @@ function createLevel() {
         roughness: 0.7
     });
     
-    // Create multi-room layout
-    const wallThickness = 0.5;
     const wallHeight = 4;
     
-    // Define rooms and corridors
-    const levelLayout = [
-        // Room 1 (starting room) - bottom center
-        { type: 'wall', x: 0, z: 15, w: 20, d: wallThickness }, // north wall with door
-        { type: 'wall', x: -10, z: 10, w: wallThickness, d: 10 }, // west wall
-        { type: 'wall', x: 10, z: 10, w: wallThickness, d: 10 }, // east wall
-        { type: 'wall', x: 0, z: 5, w: 20, d: wallThickness }, // south wall
-        
-        // Corridor 1 - center
-        { type: 'wall', x: -5, z: 0, w: wallThickness, d: 10 }, // west wall
-        { type: 'wall', x: 5, z: 0, w: wallThickness, d: 10 }, // east wall
-        
-        // Room 2 (center room)
-        { type: 'wall', x: -15, z: -5, w: 10, d: wallThickness }, // north wall left
-        { type: 'wall', x: 15, z: -5, w: 10, d: wallThickness }, // north wall right
-        { type: 'wall', x: -20, z: -10, w: wallThickness, d: 10 }, // west wall
-        { type: 'wall', x: 20, z: -10, w: wallThickness, d: 10 }, // east wall
-        { type: 'wall', x: -15, z: -15, w: 10, d: wallThickness }, // south wall left
-        { type: 'wall', x: 15, z: -15, w: 10, d: wallThickness }, // south wall right
-        
-        // Room 3 (left room)
-        { type: 'wall', x: -30, z: 10, w: 20, d: wallThickness }, // north wall
-        { type: 'wall', x: -40, z: 0, w: wallThickness, d: 20 }, // west wall
-        { type: 'wall', x: -20, z: 0, w: wallThickness, d: 20 }, // east wall with door
-        { type: 'wall', x: -30, z: -10, w: 20, d: wallThickness }, // south wall
-        
-        // Room 4 (right room)
-        { type: 'wall', x: 30, z: 10, w: 20, d: wallThickness }, // north wall
-        { type: 'wall', x: 20, z: 0, w: wallThickness, d: 20 }, // west wall with door
-        { type: 'wall', x: 40, z: 0, w: wallThickness, d: 20 }, // east wall
-        { type: 'wall', x: 30, z: -10, w: 20, d: wallThickness }, // south wall
-        
-        // Outer boundaries
-        { type: 'wall', x: 0, z: 20, w: 100, d: wallThickness }, // north boundary
-        { type: 'wall', x: 0, z: -20, w: 100, d: wallThickness }, // south boundary
-        { type: 'wall', x: -50, z: 0, w: wallThickness, d: 40 }, // west boundary
-        { type: 'wall', x: 50, z: 0, w: wallThickness, d: 40 }, // east boundary
-    ];
+    // Convert grid to 3D walls
+    for (let x = 0; x < gridSize; x++) {
+        for (let z = 0; z < gridSize; z++) {
+            if (levelGrid[x][z] === 1) {
+                const worldX = (x - gridSize / 2) * cellSize;
+                const worldZ = (z - gridSize / 2) * cellSize;
+                
+                const geometry = new THREE.BoxGeometry(cellSize, wallHeight, cellSize);
+                const wall = new THREE.Mesh(geometry, wallMaterial);
+                wall.position.set(worldX, wallHeight / 2, worldZ);
+                wall.castShadow = true;
+                wall.receiveShadow = true;
+                
+                // Store wall bounds for collision
+                wall.userData = {
+                    minX: worldX - cellSize / 2,
+                    maxX: worldX + cellSize / 2,
+                    minZ: worldZ - cellSize / 2,
+                    maxZ: worldZ + cellSize / 2
+                };
+                
+                scene.add(wall);
+                walls.push(wall);
+            }
+        }
+    }
     
-    // Create walls from layout
-    levelLayout.forEach(wallDef => {
-        const geometry = new THREE.BoxGeometry(wallDef.w, wallHeight, wallDef.d);
-        const wall = new THREE.Mesh(geometry, wallMaterial);
-        wall.position.set(wallDef.x, wallHeight / 2, wallDef.z);
-        wall.castShadow = true;
-        wall.receiveShadow = true;
-        
-        // Store wall bounds for collision
-        wall.userData = {
-            minX: wallDef.x - wallDef.w / 2,
-            maxX: wallDef.x + wallDef.w / 2,
-            minZ: wallDef.z - wallDef.d / 2,
-            maxZ: wallDef.z + wallDef.d / 2
-        };
-        
-        scene.add(wall);
-        walls.push(wall);
-    });
+    // Update player position
+    const worldPlayerX = (Math.floor(gridSize / 2) - gridSize / 2) * cellSize;
+    const worldPlayerZ = (Math.floor(gridSize / 2) - gridSize / 2) * cellSize;
+    player.position.set(worldPlayerX, 0.8, worldPlayerZ);
     
-    // Add some pillars for cover
-    const pillarPositions = [
-        { x: -30, z: 0 },
-        { x: 30, z: 0 },
-        { x: 0, z: -10 },
-        { x: -10, z: -10 },
-        { x: 10, z: -10 }
-    ];
-    
-    pillarPositions.forEach(pos => {
-        const geometry = new THREE.BoxGeometry(2, wallHeight, 2);
-        const pillar = new THREE.Mesh(geometry, wallMaterial);
-        pillar.position.set(pos.x, wallHeight / 2, pos.z);
-        pillar.castShadow = true;
-        pillar.receiveShadow = true;
-        
-        pillar.userData = {
-            minX: pos.x - 1,
-            maxX: pos.x + 1,
-            minZ: pos.z - 1,
-            maxZ: pos.z + 1
-        };
-        
-        scene.add(pillar);
-        walls.push(pillar);
-    });
+    return spawnPointPositions.map(sp => ({
+        x: (sp.x - gridSize / 2) * cellSize,
+        z: (sp.z - gridSize / 2) * cellSize
+    }));
+}
+
+function createLevel() {
+    return generateLevel();
 }
 
 function createMonster(x, z) {
@@ -621,13 +801,7 @@ function createMonster(x, z) {
     return monsterGroup;
 }
 
-function createSpawnPoints() {
-    const spawnPositions = [
-        { x: -30, z: 0, roomName: 'Left Room' },
-        { x: 30, z: 0, roomName: 'Right Room' },
-        { x: 0, z: -10, roomName: 'Center Room' }
-    ];
-    
+function createSpawnPointsFromData(spawnPositions) {
     spawnPositions.forEach((pos, index) => {
         const spawnGroup = new THREE.Group();
         
@@ -677,7 +851,7 @@ function createSpawnPoints() {
             health: 10,
             id: index,
             nextSpawnTime: Date.now() + 2000,
-            roomName: pos.roomName,
+            roomName: `Spawn Point ${index + 1}`,
             rings: [ring1, ring2],
             core: core
         };
@@ -689,24 +863,35 @@ function createSpawnPoints() {
 }
 
 function createLamps() {
-    const lampPositions = [
-        // Corridor lamps
-        { x: 0, z: 5 },
-        { x: 0, z: -5 },
+    // Generate lamp positions in open areas
+    const lampPositions = [];
+    let seed = levelSeed + 10000;
+    
+    // Place lamps in open areas
+    for (let attempts = 0; attempts < 30; attempts++) {
+        const gridX = 5 + Math.floor(seededRandom(seed++) * (gridSize - 10));
+        const gridZ = 5 + Math.floor(seededRandom(seed++) * (gridSize - 10));
         
-        // Room lamps
-        { x: -30, z: 0 },
-        { x: 30, z: 0 },
-        { x: -10, z: -10 },
-        { x: 10, z: -10 },
-        { x: 0, z: 10 },
-        
-        // Corner lamps
-        { x: -40, z: 10 },
-        { x: 40, z: 10 },
-        { x: -40, z: -10 },
-        { x: 40, z: -10 }
-    ];
+        // Check if position is empty and not too close to other lamps
+        if (levelGrid[gridX][gridZ] === 0) {
+            const worldX = (gridX - gridSize / 2) * cellSize;
+            const worldZ = (gridZ - gridSize / 2) * cellSize;
+            
+            // Check distance from other lamps
+            let tooClose = false;
+            for (const existing of lampPositions) {
+                const distance = Math.sqrt((worldX - existing.x) ** 2 + (worldZ - existing.z) ** 2);
+                if (distance < 8) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            
+            if (!tooClose) {
+                lampPositions.push({ x: worldX, z: worldZ });
+            }
+        }
+    }
     
     lampPositions.forEach(pos => {
         const lampGroup = new THREE.Group();
@@ -1112,12 +1297,13 @@ function updatePlayer(delta) {
     }
     
     // Boundary collision
-    if (Math.abs(player.position.x) > 48) {
-        player.position.x = Math.sign(player.position.x) * 48;
+    const levelBoundary = (gridSize / 2 - 1) * cellSize;
+    if (Math.abs(player.position.x) > levelBoundary) {
+        player.position.x = Math.sign(player.position.x) * levelBoundary;
         velocity.x = 0;
     }
-    if (Math.abs(player.position.z) > 18) {
-        player.position.z = Math.sign(player.position.z) * 18;
+    if (Math.abs(player.position.z) > levelBoundary) {
+        player.position.z = Math.sign(player.position.z) * levelBoundary;
         velocity.z = 0;
     }
 
@@ -1410,6 +1596,11 @@ function startGame() {
     
     updateHUD();
     animate();
+}
+
+function generateNewLevel() {
+    levelSeed = Math.floor(Math.random() * 1000000);
+    location.reload(); // Reload the page to generate a new level
 }
 
 // Initialize when page loads
