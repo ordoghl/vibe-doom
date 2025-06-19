@@ -1039,6 +1039,64 @@ function onMouseClick(event) {
     }
 }
 
+function createBulletTexture() {
+    // Create a canvas for bullet texture
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    
+    // Create a glowing energy ball effect
+    const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    gradient.addColorStop(0, '#ffff00'); // Bright yellow center
+    gradient.addColorStop(0.3, '#ffaa00'); // Orange
+    gradient.addColorStop(0.6, '#ff6600'); // Red-orange
+    gradient.addColorStop(1, 'rgba(255, 0, 0, 0)'); // Transparent red edge
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 32, 32);
+    
+    // Add some sparkle effects
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 6; i++) {
+        const angle = (i * Math.PI * 2) / 6;
+        const x = 16 + Math.cos(angle) * 8;
+        const y = 16 + Math.sin(angle) * 8;
+        ctx.fillRect(x - 1, y - 1, 2, 2);
+    }
+    
+    return new THREE.CanvasTexture(canvas);
+}
+
+function createEnemyBulletTexture() {
+    // Create a canvas for enemy bullet texture
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    
+    // Create a dark energy ball effect
+    const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    gradient.addColorStop(0, '#ff4400'); // Bright orange center
+    gradient.addColorStop(0.3, '#cc2200'); // Dark red
+    gradient.addColorStop(0.6, '#660000'); // Very dark red
+    gradient.addColorStop(1, 'rgba(100, 0, 0, 0)'); // Transparent dark red edge
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 32, 32);
+    
+    // Add some dark sparkle effects
+    ctx.fillStyle = '#ffaa44';
+    for (let i = 0; i < 4; i++) {
+        const angle = (i * Math.PI * 2) / 4;
+        const x = 16 + Math.cos(angle) * 6;
+        const y = 16 + Math.sin(angle) * 6;
+        ctx.fillRect(x - 1, y - 1, 2, 2);
+    }
+    
+    return new THREE.CanvasTexture(canvas);
+}
+
 function shoot() {
     const currentTime = Date.now();
     if (currentTime - lastShot < 200) return; // Fire rate limit
@@ -1047,8 +1105,14 @@ function shoot() {
     // Play shooting sound
     if (sounds.shoot) sounds.shoot();
 
-    const bulletGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-    const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+    const bulletGeometry = new THREE.SphereGeometry(0.15, 12, 12);
+    const bulletTexture = createBulletTexture();
+    const bulletMaterial = new THREE.MeshBasicMaterial({ 
+        map: bulletTexture,
+        transparent: true,
+        emissive: 0x444400,
+        emissiveIntensity: 0.3
+    });
     const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
 
     // Position bullet at camera position
@@ -1070,8 +1134,14 @@ function enemyShoot(enemy) {
     if (currentTime - lastEnemyShot[enemy.id] < 2000) return; // Enemy fire rate
     lastEnemyShot[enemy.id] = currentTime;
 
-    const bulletGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-    const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xff8800 });
+    const bulletGeometry = new THREE.SphereGeometry(0.12, 10, 10);
+    const bulletTexture = createEnemyBulletTexture();
+    const bulletMaterial = new THREE.MeshBasicMaterial({ 
+        map: bulletTexture,
+        transparent: true,
+        emissive: 0x440000,
+        emissiveIntensity: 0.4
+    });
     const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
 
     bullet.position.copy(enemy.position);
