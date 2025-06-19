@@ -1731,8 +1731,9 @@ function renderMinimap() {
     minimapCtx.save();
     
     // Translate to center and rotate based on player rotation
+    // This makes the minimap rotate so that the player's forward direction is always "up"
     minimapCtx.translate(centerX, centerY);
-    minimapCtx.rotate(-player.rotation.y - Math.PI / 2);
+    minimapCtx.rotate(player.rotation.y);
     
     // Draw grid
     minimapCtx.strokeStyle = 'rgba(0, 255, 0, 0.2)';
@@ -1814,21 +1815,22 @@ function renderMinimap() {
     // Restore context state
     minimapCtx.restore();
     
-    // Draw player (always at center)
+    // Draw player triangle AFTER restoring context so it doesn't rotate with the map
+    // This makes the triangle always point upward regardless of player rotation
     minimapCtx.fillStyle = 'rgba(0, 255, 0, 1)';
     minimapCtx.strokeStyle = 'rgba(0, 255, 0, 1)';
     minimapCtx.lineWidth = 2;
     
-    // Player triangle pointing up (forward direction)
+    // Player triangle pointing up (static direction) at center of minimap
     minimapCtx.beginPath();
-    minimapCtx.moveTo(centerX, centerY - 8);
-    minimapCtx.lineTo(centerX - 6, centerY + 6);
-    minimapCtx.lineTo(centerX + 6, centerY + 6);
+    minimapCtx.moveTo(centerX, centerY - 8);  // Point up
+    minimapCtx.lineTo(centerX - 6, centerY + 6);  // Bottom left
+    minimapCtx.lineTo(centerX + 6, centerY + 6);   // Bottom right
     minimapCtx.closePath();
     minimapCtx.fill();
     minimapCtx.stroke();
     
-    // Draw compass directions
+    // Draw compass directions (fixed positions relative to player orientation)
     minimapCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
     minimapCtx.font = '12px Arial';
     minimapCtx.textAlign = 'center';
@@ -1843,7 +1845,8 @@ function renderMinimap() {
     ];
     
     directions.forEach(dir => {
-        const rotatedAngle = dir.angle - player.rotation.y - Math.PI / 2;
+        // Apply the same rotation that was applied to the map
+        const rotatedAngle = dir.angle - player.rotation.y;
         const x = centerX + Math.cos(rotatedAngle) * compassDist;
         const y = centerY + Math.sin(rotatedAngle) * compassDist;
         
